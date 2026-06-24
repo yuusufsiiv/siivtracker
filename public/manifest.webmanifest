@@ -1,0 +1,17 @@
+{
+  "name": "Siiv Track — 90 Day Transformation",
+  "short_name": "Siiv Track",
+  "description": "A 90-day Islamic transformation tracker for daily prayers, habits, and growth.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0a2463",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
