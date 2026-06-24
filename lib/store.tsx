@@ -14,8 +14,10 @@ import {
   defaultConfig,
 } from "@/lib/defaults"
 import { toDateKey } from "@/lib/dates"
+import { supabase } from "@/lib/supabase"
+import type { User } from "@supabase/supabase-js"
 
-const STORAGE_KEY = "siiv-track-v1"
+const STORAGE_KEY = "siiv-track-v2"
 
 export interface UserData {
   name: string
@@ -46,6 +48,7 @@ export interface CustomTask {
   name: string
   frequency: Frequency
   scheduledDays: number[]
+  schedule?: Record<string, unknown> // Custom schedule JSON
   colorTag: string
   createdAt: string
   active: boolean
@@ -94,14 +97,184 @@ export function hashPin(pin: string): string {
   return (h >>> 0).toString(16)
 }
 
+/** Build a Supabase-compatible password from a PIN. */
+export function pinToPassword(pin: string): string {
+  return `siiv_${pin}_tracker_2024`
+}
+
 export function emptyDay(): DayData {
   return { tasks: {}, siiga: true, sigayWhy: "", sigayPrevention: "" }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Supabase sync helpers
+// ─────────────────────────────────────────────────────────────
+
+async function fetchRemoteState(userId: string): Promise<Partial<AppState> | null> {
+  const [profileRes, daysRes, customTasksRes, logsRes, reviewsRes] =
+    await Promise.all([
+      supabase.from("profiles").select("*").eq("user_id", userId).maybeSingle(),
+      supabase.from("days_data").select("*").eq("user_id", userId),
+      supabase.from("custom_tasks").select("*").eq("user_id", userId),
+      supabase.from("custom_task_logs").select("*").eq("user_id", userId),
+      supabase.from("weekly_reviews").select("*").eq("user_id", userId),
+    ])
+
+  if (profileRes.error) return null
+  const profile = profileRes.data
+  if (!profile) return null
+
+  const userData: UserData = {
+    name: profile.name,
+    email: profile.email,
+    pin: profile.pin,
+    startDate: profile.start_date,
+    createdAt: profile.created_at,
+    city: profile.city || "",
+    lat: profile.lat,
+    lng: profile.lng,
+    calcMethod: profile.calc_method || 3,
+    notifyMinutesBefore: profile.notify_minutes_before || 5,
+    notifications: profile.notifications || {},
+  }
+
+  const config: AppConfig = profile.config
+    ? { ...defaultConfig(), ...(profile.config as AppConfig) }
+    : defaultConfig()
+
+  const days: Record<string, DayData> = {}
+  for (const row of daysRes.data ?? []) {
+    days[String(row.date_key)] = {
+      tasks: row.tasks || {},
+      siiga: row.siiga,
+      sigayWhy: row.sigay_why || "",
+      sigayPrevention: row.sigay_prevention || "",
+      prayerTimes: row.prayer_times || undefined,
+    }
+  }
+
+  const customTasks: Record<string, CustomTask> = {}
+  for (const row of customTasksRes.data ?? []) {
+    customTasks[row.id] = {
+      id: row.id,
+      name: row.name,
+      frequency: row.frequency as Frequency,
+      scheduledDays: row.scheduled_days || [],
+      schedule: row.schedule || undefined,
+      colorTag: row.color_tag || "#4a6fa5",
+      createdAt: row.created_at,
+      active: row.active,
+      deletedAt: row.deleted_at || null,
+    }
+  }
+
+  const customTaskLogs: Record<string, Record<string, boolean>> = {}
+  for (const row of logsRes.data ?? []) {
+    const key = String(row.date_key)
+    if (!customTaskLogs[key]) customTaskLogs[key] = {}
+    customTaskLogs[key][row.task_id] = row.completed
+  }
+
+  const weeklyReviews: Record<string, WeeklyReview> = {}
+  for (const row of reviewsRes.data ?? []) {
+    weeklyReviews[String(row.date_key)] = {
+      values: row.values || {},
+      savedAt: row.saved_at,
+    }
+  }
+
+  return { user: userData, days, customTasks, customTaskLogs, weeklyReviews, config }
+}
+
+async function pushProfileToRemote(userId: string, state: AppState) {
+  if (!state.user) return
+  await supabase.from("profiles").upsert({
+    user_id: userId,
+    name: state.user.name,
+    email: state.user.email,
+    pin: state.user.pin,
+    start_date: state.user.startDate,
+    city: state.user.city,
+    lat: state.user.lat,
+    lng: state.user.lng,
+    calc_method: state.user.calcMethod,
+    notify_minutes_before: state.user.notifyMinutesBefore,
+    notifications: state.user.notifications,
+    config: state.config,
+    updated_at: new Date().toISOString(),
+  })
+}
+
+async function pushDayToRemote(userId: string, key: string, day: DayData) {
+  await supabase.from("days_data").upsert({
+    user_id: userId,
+    date_key: key,
+    tasks: day.tasks,
+    siiga: day.siiga,
+    sigay_why: day.sigayWhy,
+    sigay_prevention: day.sigayPrevention,
+    prayer_times: day.prayerTimes || null,
+    updated_at: new Date().toISOString(),
+  })
+}
+
+async function pushCustomTaskToRemote(userId: string, task: CustomTask) {
+  await supabase.from("custom_tasks").upsert({
+    user_id: userId,
+    id: task.id,
+    name: task.name,
+    frequency: task.frequency,
+    scheduled_days: task.scheduledDays,
+    schedule: task.schedule || null,
+    color_tag: task.colorTag,
+    active: task.active,
+    deleted_at: task.deletedAt,
+    created_at: task.createdAt,
+  })
+}
+
+async function pushCustomTaskLogToRemote(
+  userId: string,
+  dateKey: string,
+  taskId: string,
+  completed: boolean
+) {
+  await supabase.from("custom_task_logs").upsert({
+    user_id: userId,
+    date_key: dateKey,
+    task_id: taskId,
+    completed,
+    updated_at: new Date().toISOString(),
+  })
+}
+
+async function pushWeeklyReviewToRemote(
+  userId: string,
+  dateKey: string,
+  review: WeeklyReview
+) {
+  await supabase.from("weekly_reviews").upsert({
+    user_id: userId,
+    date_key: dateKey,
+    values: review.values,
+    saved_at: review.savedAt,
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
+// Store Context
+// ─────────────────────────────────────────────────────────────
+
 interface StoreContextValue {
   state: AppState
   ready: boolean
+  supabaseUser: User | null
   setState: (updater: (prev: AppState) => AppState) => void
+  syncProfile: () => Promise<void>
+  syncDay: (key: string) => Promise<void>
+  syncCustomTask: (task: CustomTask) => Promise<void>
+  syncCustomTaskLog: (dateKey: string, taskId: string, completed: boolean) => Promise<void>
+  syncWeeklyReview: (dateKey: string, review: WeeklyReview) => Promise<void>
   reset: () => void
 }
 
@@ -110,9 +283,12 @@ const StoreContext = createContext<StoreContextValue | null>(null)
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setRawState] = useState<AppState>(emptyState)
   const [ready, setReady] = useState(false)
+  const [supabaseUser, setSupabaseUser] = useState<User | null>(null)
   const loaded = useRef(false)
+  const supabaseUserRef = useRef<User | null>(null)
 
   useEffect(() => {
+    // Load local state first for immediate UI
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
@@ -126,10 +302,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore corrupt storage
     }
-    loaded.current = true
-    setReady(true)
+
+    // Check Supabase session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const user = session?.user ?? null
+      setSupabaseUser(user)
+      supabaseUserRef.current = user
+
+      if (user) {
+        // Fetch remote state and merge
+        const remote = await fetchRemoteState(user.id)
+        if (remote) {
+          setRawState((prev) => ({
+            ...prev,
+            ...remote,
+            config: { ...defaultConfig(), ...(remote.config ?? prev.config) },
+          }))
+        }
+      }
+
+      loaded.current = true
+      setReady(true)
+    })
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user ?? null
+      setSupabaseUser(user)
+      supabaseUserRef.current = user
+
+      if (user) {
+        const remote = await fetchRemoteState(user.id)
+        if (remote) {
+          setRawState((prev) => ({
+            ...prev,
+            ...remote,
+            config: { ...defaultConfig(), ...(remote.config ?? prev.config) },
+          }))
+        }
+      }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
+  // Persist to localStorage on every change
   useEffect(() => {
     if (!loaded.current) return
     try {
@@ -139,7 +358,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [state])
 
-  // Apply theme to document root.
+  // Apply theme to document root
   useEffect(() => {
     const theme = state.config.theme
     if (theme === "dark") {
@@ -156,10 +375,59 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   function reset() {
     const fresh = emptyState()
     setRawState(fresh)
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {}
+    supabase.auth.signOut()
+  }
+
+  async function syncProfile() {
+    const user = supabaseUserRef.current
+    if (!user) return
+    await pushProfileToRemote(user.id, state)
+  }
+
+  async function syncDay(key: string) {
+    const user = supabaseUserRef.current
+    if (!user) return
+    const day = state.days[key]
+    if (!day) return
+    await pushDayToRemote(user.id, key, day)
+  }
+
+  async function syncCustomTask(task: CustomTask) {
+    const user = supabaseUserRef.current
+    if (!user) return
+    await pushCustomTaskToRemote(user.id, task)
+  }
+
+  async function syncCustomTaskLog(dateKey: string, taskId: string, completed: boolean) {
+    const user = supabaseUserRef.current
+    if (!user) return
+    await pushCustomTaskLogToRemote(user.id, dateKey, taskId, completed)
+  }
+
+  async function syncWeeklyReview(dateKey: string, review: WeeklyReview) {
+    const user = supabaseUserRef.current
+    if (!user) return
+    await pushWeeklyReviewToRemote(user.id, dateKey, review)
   }
 
   return (
-    <StoreContext.Provider value={{ state, ready, setState, reset }}>
+    <StoreContext.Provider
+      value={{
+        state,
+        ready,
+        supabaseUser,
+        setState,
+        syncProfile,
+        syncDay,
+        syncCustomTask,
+        syncCustomTaskLog,
+        syncWeeklyReview,
+        reset,
+      }}
+    >
       {children}
     </StoreContext.Provider>
   )

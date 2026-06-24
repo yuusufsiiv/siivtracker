@@ -18,11 +18,15 @@ import {
   Download,
   Plus,
   X,
+  Cloud,
+  CloudOff,
 } from "lucide-react"
-import { useStore, hashPin } from "@/lib/store"
+import { useStore, hashPin, pinToPassword, type CustomTask } from "@/lib/store"
 import { ToggleSwitch } from "@/components/ui/toggle-switch"
 import { BottomSheet, ConfirmDialog } from "@/components/ui/sheet"
 import { PinPad } from "@/components/pin-pad"
+import { supabase } from "@/lib/supabase"
+import type { TaskDef, SectionDef } from "@/lib/defaults"
 
 type Panel =
   | null
@@ -38,7 +42,7 @@ type Panel =
   | "data"
 
 export function SettingsScreen({ onLock }: { onLock: () => void }) {
-  const { state, setState, reset } = useStore()
+  const { state, setState, reset, supabaseUser, syncProfile } = useStore()
   const [panel, setPanel] = useState<Panel>(null)
   const [confirmReset, setConfirmReset] = useState(false)
 
@@ -53,6 +57,19 @@ export function SettingsScreen({ onLock }: { onLock: () => void }) {
         <p className="text-sm text-muted-foreground">
           {state.user?.name} · {state.user?.email}
         </p>
+        <div className="mt-1 flex items-center gap-1.5 text-xs">
+          {supabaseUser ? (
+            <>
+              <Cloud className="h-3.5 w-3.5 text-success" />
+              <span className="text-success">Xog la keydiyo</span>
+            </>
+          ) : (
+            <>
+              <CloudOff className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">Offline mode</span>
+            </>
+          )}
+        </div>
       </header>
 
       <div className="space-y-5">
@@ -77,7 +94,7 @@ export function SettingsScreen({ onLock }: { onLock: () => void }) {
           />
           <Row
             icon={<ListChecks className="h-5 w-5" />}
-            label="Hawlaha"
+            label="Hawlaha (CRUD)"
             onClick={() => setPanel("tasks")}
           />
           <Row
@@ -133,18 +150,18 @@ export function SettingsScreen({ onLock }: { onLock: () => void }) {
         </div>
 
         <p className="pt-2 text-center text-xs text-muted-foreground">
-          Siiv Track · v1.0
+          Siiv Track · v2.0
         </p>
       </div>
 
-      <ProfilePanel open={panel === "profile"} onClose={closePanel} />
-      <AppearancePanel open={panel === "appearance"} onClose={closePanel} />
-      <CustomPanel open={panel === "custom"} onClose={closePanel} />
-      <TasksPanel open={panel === "tasks"} onClose={closePanel} />
-      <PrayersPanel open={panel === "prayers"} onClose={closePanel} />
-      <SiigaPanel open={panel === "siiga"} onClose={closePanel} />
-      <RulesPanel open={panel === "rules"} onClose={closePanel} />
-      <WeeklyPanel open={panel === "weekly"} onClose={closePanel} />
+      <ProfilePanel open={panel === "profile"} onClose={closePanel} onSync={syncProfile} />
+      <AppearancePanel open={panel === "appearance"} onClose={closePanel} onSync={syncProfile} />
+      <CustomPanel open={panel === "custom"} onClose={closePanel} onSync={syncProfile} />
+      <TasksPanel open={panel === "tasks"} onClose={closePanel} onSync={syncProfile} />
+      <PrayersPanel open={panel === "prayers"} onClose={closePanel} onSync={syncProfile} />
+      <SiigaPanel open={panel === "siiga"} onClose={closePanel} onSync={syncProfile} />
+      <RulesPanel open={panel === "rules"} onClose={closePanel} onSync={syncProfile} />
+      <WeeklyPanel open={panel === "weekly"} onClose={closePanel} onSync={syncProfile} />
       <SecurityPanel open={panel === "security"} onClose={closePanel} />
       <DataPanel open={panel === "data"} onClose={closePanel} />
 
@@ -252,7 +269,15 @@ function ToggleRow({
 
 /* ------------------------------- Panels ------------------------------- */
 
-function ProfilePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+function ProfilePanel({
+  open,
+  onClose,
+  onSync,
+}: {
+  open: boolean
+  onClose: () => void
+  onSync: () => void
+}) {
   const { state, setState } = useStore()
   const u = state.user
   if (!open || !u) return null
@@ -260,7 +285,14 @@ function ProfilePanel({ open, onClose }: { open: boolean; onClose: () => void })
     setState((prev) => ({ ...prev, user: { ...prev.user!, ...patch } }))
   }
   return (
-    <BottomSheet open={open} onClose={onClose} title="Macluumaadka Profile">
+    <BottomSheet
+      open={open}
+      onClose={() => {
+        onClose()
+        onSync()
+      }}
+      title="Macluumaadka Profile"
+    >
       <div className="space-y-4">
         <Field label="Magaca" value={u.name} onChange={(v) => update({ name: v })} />
         <Field
@@ -286,15 +318,18 @@ function ProfilePanel({ open, onClose }: { open: boolean; onClose: () => void })
 function AppearancePanel({
   open,
   onClose,
+  onSync,
 }: {
   open: boolean
   onClose: () => void
+  onSync: () => void
 }) {
   const { state, setState } = useStore()
   if (!open) return null
   const theme = state.config.theme
   function setTheme(t: "navy" | "dark") {
     setState((prev) => ({ ...prev, config: { ...prev.config, theme: t } }))
+    setTimeout(onSync, 100)
   }
   return (
     <BottomSheet open={open} onClose={onClose} title="Muuqaalka">
@@ -324,12 +359,21 @@ function AppearancePanel({
   )
 }
 
-function CustomPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+function CustomPanel({
+  open,
+  onClose,
+  onSync,
+}: {
+  open: boolean
+  onClose: () => void
+  onSync: () => void
+}) {
   const { state, setState } = useStore()
   if (!open) return null
   const cfg = state.config
   function set<K extends keyof typeof cfg>(key: K, value: (typeof cfg)[K]) {
     setState((prev) => ({ ...prev, config: { ...prev.config, [key]: value } }))
+    setTimeout(onSync, 300)
   }
   return (
     <BottomSheet open={open} onClose={onClose} title="Hagaajinta Guud">
@@ -387,11 +431,32 @@ function CustomPanel({ open, onClose }: { open: boolean; onClose: () => void }) 
   )
 }
 
-function TasksPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+/* ── Full CRUD Tasks Panel ─────────────────────────────────────────────── */
+
+function TasksPanel({
+  open,
+  onClose,
+  onSync,
+}: {
+  open: boolean
+  onClose: () => void
+  onSync: () => void
+}) {
   const { state, setState } = useStore()
+  const [addingTask, setAddingTask] = useState(false)
+  const [newTaskName, setNewTaskName] = useState("")
+  const [newTaskSection, setNewTaskSection] = useState("")
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  const [editName, setEditName] = useState("")
+
   if (!open) return null
   const cfg = state.config
-  function updateTask(id: string, patch: Partial<(typeof cfg.tasks)[number]>) {
+
+  const enabledSections = cfg.sections
+    .filter((s) => s.enabled)
+    .sort((a, b) => a.order - b.order)
+
+  function updateTask(id: string, patch: Partial<TaskDef>) {
     setState((prev) => ({
       ...prev,
       config: {
@@ -401,44 +466,199 @@ function TasksPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
         ),
       },
     }))
+    setTimeout(onSync, 300)
   }
+
+  function addTask() {
+    if (!newTaskName.trim()) return
+    const section = newTaskSection || (enabledSections[0]?.id ?? "subax")
+    const id = `task_${Date.now()}`
+    const newT: TaskDef = {
+      id,
+      name: newTaskName.trim(),
+      section,
+      countInScore: true,
+      enabled: true,
+      order: cfg.tasks.length,
+    }
+    setState((prev) => ({
+      ...prev,
+      config: { ...prev.config, tasks: [...prev.config.tasks, newT] },
+    }))
+    setNewTaskName("")
+    setNewTaskSection("")
+    setAddingTask(false)
+    setTimeout(onSync, 300)
+  }
+
+  function deleteTask(id: string) {
+    // Soft-delete: just disable the task so old history stays intact
+    updateTask(id, { enabled: false })
+  }
+
+  function startEdit(task: TaskDef) {
+    setEditingTaskId(task.id)
+    setEditName(task.name)
+  }
+
+  function saveEdit(id: string) {
+    updateTask(id, { name: editName.trim() })
+    setEditingTaskId(null)
+    setEditName("")
+  }
+
   return (
     <BottomSheet open={open} onClose={onClose} title="Hawlaha Maalinlaha">
       <div className="space-y-3">
-        {cfg.tasks.map((t) => (
-          <div
-            key={t.id}
-            className="rounded-xl border border-border bg-card p-3"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-foreground">
-                {t.name}
-              </span>
-              <ToggleSwitch
-                checked={t.enabled}
-                onChange={(v) => updateTask(t.id, { enabled: v })}
-              />
+        {enabledSections.map((section) => {
+          const sectionTasks = cfg.tasks.filter(
+            (t) => t.section === section.id && t.enabled,
+          )
+          return (
+            <div key={section.id}>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {section.name}
+              </p>
+              {sectionTasks.map((t) => (
+                <div
+                  key={t.id}
+                  className="mb-2 rounded-xl border border-border bg-card p-3"
+                >
+                  {editingTaskId === t.id ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        autoFocus
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="flex-1 rounded-lg border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-ring"
+                      />
+                      <button
+                        onClick={() => saveEdit(t.id)}
+                        disabled={!editName.trim()}
+                        className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
+                      >
+                        Keydi
+                      </button>
+                      <button
+                        onClick={() => setEditingTaskId(null)}
+                        className="rounded-lg p-1.5 text-muted-foreground"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex-1 text-sm font-medium text-foreground">
+                        {t.name}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => startEdit(t)}
+                          className="rounded-lg p-1.5 text-muted-foreground active:text-foreground"
+                          aria-label="Wax ka beddel"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => deleteTask(t.id)}
+                          className="rounded-lg p-1.5 text-danger active:bg-danger/10"
+                          aria-label="Tirtir"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!editingTaskId && t.enabled && (
+                    <label className="mt-2 flex items-center justify-between gap-3 border-t border-border pt-2">
+                      <span className="text-xs text-muted-foreground">
+                        Ku xisaabi Score-ka
+                      </span>
+                      <ToggleSwitch
+                        accent="success"
+                        checked={t.countInScore}
+                        onChange={(v) => updateTask(t.id, { countInScore: v })}
+                      />
+                    </label>
+                  )}
+                </div>
+              ))}
             </div>
-            {t.enabled && (
-              <label className="mt-2 flex items-center justify-between gap-3 border-t border-border pt-2">
-                <span className="text-xs text-muted-foreground">
-                  Ku xisaabi Score-ka
-                </span>
-                <ToggleSwitch
-                  accent="success"
-                  checked={t.countInScore}
-                  onChange={(v) => updateTask(t.id, { countInScore: v })}
-                />
-              </label>
-            )}
+          )
+        })}
+
+        {/* Add new task form */}
+        {addingTask ? (
+          <div className="rounded-xl border border-dashed border-primary/50 bg-card p-3 space-y-3">
+            <p className="text-sm font-semibold text-foreground">Hawl Cusub</p>
+            <input
+              autoFocus
+              value={newTaskName}
+              onChange={(e) => setNewTaskName(e.target.value)}
+              placeholder="Magaca hawsha..."
+              className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-ring"
+            />
+            <div>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">Qaybta</p>
+              <div className="flex flex-wrap gap-2">
+                {enabledSections.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setNewTaskSection(s.id)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                      newTaskSection === s.id
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={addTask}
+                disabled={!newTaskName.trim()}
+                className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+              >
+                Ku dar
+              </button>
+              <button
+                onClick={() => {
+                  setAddingTask(false)
+                  setNewTaskName("")
+                  setNewTaskSection("")
+                }}
+                className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-foreground"
+              >
+                Jooji
+              </button>
+            </div>
           </div>
-        ))}
+        ) : (
+          <button
+            onClick={() => setAddingTask(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border py-3 text-sm font-semibold text-primary active:bg-muted"
+          >
+            <Plus className="h-4 w-4" />
+            Ku dar hawl cusub
+          </button>
+        )}
       </div>
     </BottomSheet>
   )
 }
 
-function PrayersPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+function PrayersPanel({
+  open,
+  onClose,
+  onSync,
+}: {
+  open: boolean
+  onClose: () => void
+  onSync: () => void
+}) {
   const { state, setState } = useStore()
   if (!open) return null
   const cfg = state.config
@@ -452,6 +672,7 @@ function PrayersPanel({ open, onClose }: { open: boolean; onClose: () => void })
         ),
       },
     }))
+    setTimeout(onSync, 300)
   }
   return (
     <BottomSheet open={open} onClose={onClose} title="Salaadaha">
@@ -489,7 +710,15 @@ function PrayersPanel({ open, onClose }: { open: boolean; onClose: () => void })
   )
 }
 
-function SiigaPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+function SiigaPanel({
+  open,
+  onClose,
+  onSync,
+}: {
+  open: boolean
+  onClose: () => void
+  onSync: () => void
+}) {
   const { state, setState } = useStore()
   if (!open) return null
   const s = state.config.siiga
@@ -498,6 +727,7 @@ function SiigaPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
       ...prev,
       config: { ...prev.config, siiga: { ...prev.config.siiga, [key]: value } },
     }))
+    setTimeout(onSync, 300)
   }
   return (
     <BottomSheet open={open} onClose={onClose} title="Habka Siigada">
@@ -536,12 +766,21 @@ function SiigaPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   )
 }
 
-function RulesPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+function RulesPanel({
+  open,
+  onClose,
+  onSync,
+}: {
+  open: boolean
+  onClose: () => void
+  onSync: () => void
+}) {
   const { state, setState } = useStore()
   if (!open) return null
   const rules = state.config.rules
   function setRules(next: typeof rules) {
     setState((prev) => ({ ...prev, config: { ...prev.config, rules: next } }))
+    setTimeout(onSync, 300)
   }
   return (
     <BottomSheet open={open} onClose={onClose} title="Xeerarka">
@@ -586,7 +825,15 @@ function RulesPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   )
 }
 
-function WeeklyPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+function WeeklyPanel({
+  open,
+  onClose,
+  onSync,
+}: {
+  open: boolean
+  onClose: () => void
+  onSync: () => void
+}) {
   const { state, setState } = useStore()
   if (!open) return null
   const fields = state.config.weeklyFields
@@ -595,6 +842,7 @@ function WeeklyPanel({ open, onClose }: { open: boolean; onClose: () => void }) 
       ...prev,
       config: { ...prev.config, weeklyFields: next },
     }))
+    setTimeout(onSync, 300)
   }
   return (
     <BottomSheet open={open} onClose={onClose} title="Su'aalaha Toddobaadle">
@@ -670,7 +918,7 @@ function SecurityPanel({
     setTimeout(() => setShake(false), 450)
   }
 
-  function handleChange(next: string) {
+  async function handleChange(next: string) {
     setError("")
     setPin(next)
     if (next.length !== 4) return
@@ -686,6 +934,10 @@ function SecurityPanel({
       setPin("")
     } else {
       if (next === firstNew) {
+        // Update Supabase Auth password
+        const newPassword = pinToPassword(next)
+        await supabase.auth.updateUser({ password: newPassword })
+
         setState((prev) => ({
           ...prev,
           user: { ...prev.user!, pin: hashPin(next) },
@@ -782,7 +1034,7 @@ function DataPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
           Soo dejiso xogta (JSON)
         </button>
         <p className="text-xs text-muted-foreground">
-          Dhammaan xogtaadu waxay ku kaydsan tahay aaladdaada oo keliya.
+          Xogtaadu waxay ku kaydsan tahay cloud-ka (Supabase) iyo aaladdaada labadaba.
         </p>
       </div>
     </BottomSheet>

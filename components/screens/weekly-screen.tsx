@@ -26,7 +26,7 @@ interface WeekInfo {
 }
 
 export function WeeklyScreen() {
-  const { state, setState } = useStore()
+  const { state, setState, syncWeeklyReview } = useStore()
   const cfg = state.config
   const start = state.user!.startDate
   const fields = cfg.weeklyFields.filter((f) => f.show)
@@ -62,6 +62,21 @@ export function WeeklyScreen() {
     [...weeks].reverse().find((w) => w.reviewable)?.index ?? 0
   const [open, setOpen] = useState<number>(latestReviewable)
 
+  async function handleSave(weekIndex: number, startKey: string, values: Record<string, string>) {
+    const review: WeeklyReview = {
+      values,
+      savedAt: new Date().toISOString(),
+    }
+    setState((prev) => ({
+      ...prev,
+      weeklyReviews: {
+        ...prev.weeklyReviews,
+        [String(weekIndex)]: review,
+      },
+    }))
+    await syncWeeklyReview(startKey, review)
+  }
+
   return (
     <div className="min-h-dvh pb-24">
       <header className="sticky top-0 z-10 bg-primary px-5 pb-4 pt-6 text-primary-foreground">
@@ -82,18 +97,7 @@ export function WeeklyScreen() {
               setOpen((cur) => (cur === week.index ? -1 : week.index))
             }
             review={state.weeklyReviews[String(week.index)]}
-            onSave={(values) =>
-              setState((prev) => ({
-                ...prev,
-                weeklyReviews: {
-                  ...prev.weeklyReviews,
-                  [String(week.index)]: {
-                    values,
-                    savedAt: new Date().toISOString(),
-                  },
-                },
-              }))
-            }
+            onSave={(values) => handleSave(week.index, week.startKey, values)}
           />
         ))}
       </div>
@@ -184,7 +188,7 @@ function WeekCard({
                   onSave(values)
                   setSaved(true)
                 }}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground active:scale-95 transition-transform"
               >
                 <Save className="h-4 w-4" />
                 {saved ? "La keydiyey!" : "Keydi"}

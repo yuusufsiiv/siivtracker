@@ -1,23 +1,23 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, Check } from "lucide-react"
+import { ArrowLeft, Check, Loader2 } from "lucide-react"
 import { PinPad } from "@/components/pin-pad"
-import { useStore, hashPin, type PinHistoryEntry } from "@/lib/store"
+import { useStore, hashPin, pinToPassword, type PinHistoryEntry } from "@/lib/store"
+import { supabase } from "@/lib/supabase"
 
 export function ForgotPin({ onBack }: { onBack: () => void }) {
-  const { state, setState } = useStore()
+  const { state, setState, syncProfile } = useStore()
   const [step, setStep] = useState(0)
   const [email, setEmail] = useState("")
   const [emailError, setEmailError] = useState("")
   const [pin, setPin] = useState("")
   const [confirm, setConfirm] = useState("")
   const [mismatch, setMismatch] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   function checkEmail() {
-    if (
-      email.trim().toLowerCase() === state.user?.email.trim().toLowerCase()
-    ) {
+    if (email.trim().toLowerCase() === state.user?.email.trim().toLowerCase()) {
       setEmailError("")
       setStep(1)
     } else {
@@ -25,18 +25,31 @@ export function ForgotPin({ onBack }: { onBack: () => void }) {
     }
   }
 
-  function savePin() {
+  async function savePin() {
+    setLoading(true)
     const entry: PinHistoryEntry = {
       changedAt: new Date().toISOString(),
       method: "forgot",
-      deviceInfo:
-        typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+      deviceInfo: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
     }
+
+    // Update Supabase Auth password
+    const newPassword = pinToPassword(pin)
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPassword,
+    })
+    if (updateError) {
+      console.warn("Could not update Supabase password:", updateError.message)
+    }
+
     setState((prev) => ({
       ...prev,
       user: prev.user ? { ...prev.user, pin: hashPin(pin) } : prev.user,
       pinHistory: [...prev.pinHistory, entry],
     }))
+
+    await syncProfile()
+    setLoading(false)
     setStep(3)
   }
 
@@ -119,6 +132,12 @@ export function ForgotPin({ onBack }: { onBack: () => void }) {
               }
             }}
           />
+          {loading && (
+            <div className="mt-6 flex items-center gap-2 text-sm text-primary-foreground/70">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              La keydiyaa...
+            </div>
+          )}
           {mismatch && (
             <p className="mt-6 text-sm font-medium text-gold">
               PIN-yadu isku mid maaha, mar kale isku day

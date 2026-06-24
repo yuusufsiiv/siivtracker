@@ -45,7 +45,7 @@ export function TodayScreen({
   dateKey?: string
   onBack?: () => void
 }) {
-  const { state, setState } = useStore()
+  const { state, setState, syncDay, syncCustomTask, syncCustomTaskLog } = useStore()
   const now = useNow(20000)
   const key = dateKey ?? todayKey()
   const isToday = key === todayKey()
@@ -94,12 +94,13 @@ export function TodayScreen({
             days: { ...prev.days, [key]: { ...d, prayerTimes: times } },
           }
         })
+        syncDay(key)
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
-  // Lightweight in-app prayer notifications (while app open).
+  // Lightweight in-app prayer notifications.
   useEffect(() => {
     if (!isToday || !day.prayerTimes) return
     if (typeof Notification === "undefined") return
@@ -136,6 +137,8 @@ export function TodayScreen({
         },
       }
     })
+    // Sync in background
+    setTimeout(() => syncDay(key), 0)
   }
 
   function setSiiga(next: { siiga: boolean; why: string; prevention: string }) {
@@ -155,10 +158,12 @@ export function TodayScreen({
         },
       }
     })
+    setTimeout(() => syncDay(key), 0)
   }
 
   function toggleCustom(taskId: string) {
     if (readOnly) return
+    const prevCompleted = !!state.customTaskLogs[key]?.[taskId]
     setState((prev) => {
       const log = prev.customTaskLogs[key] ?? {}
       return {
@@ -169,57 +174,70 @@ export function TodayScreen({
         },
       }
     })
+    syncCustomTaskLog(key, taskId, !prevCompleted)
   }
 
   function saveCustomTask(data: {
     name: string
     frequency: Frequency
     scheduledDays: number[]
+    schedule?: Record<string, unknown>
   }) {
+    let savedTask: CustomTask
+
     setState((prev) => {
       if (editTask) {
+        savedTask = {
+          ...prev.customTasks[editTask.id],
+          name: data.name,
+          frequency: data.frequency,
+          scheduledDays: data.scheduledDays,
+          schedule: data.schedule,
+        }
         return {
           ...prev,
           customTasks: {
             ...prev.customTasks,
-            [editTask.id]: {
-              ...prev.customTasks[editTask.id],
-              name: data.name,
-              frequency: data.frequency,
-              scheduledDays: data.scheduledDays,
-            },
+            [editTask.id]: savedTask,
           },
         }
       }
       const id = `ct_${Date.now()}`
-      const task: CustomTask = {
+      savedTask = {
         id,
         name: data.name,
         frequency: data.frequency,
         scheduledDays: data.scheduledDays,
+        schedule: data.schedule,
         colorTag: "#4a6fa5",
         createdAt: new Date().toISOString(),
         active: true,
         deletedAt: null,
       }
-      return { ...prev, customTasks: { ...prev.customTasks, [id]: task } }
+      return { ...prev, customTasks: { ...prev.customTasks, [id]: savedTask } }
     })
+
+    setTimeout(() => {
+      if (savedTask) syncCustomTask(savedTask)
+    }, 100)
     setEditTask(null)
   }
 
   function confirmDelete() {
     if (!deleteTask) return
+    const updated: CustomTask = {
+      ...deleteTask,
+      active: false,
+      deletedAt: new Date().toISOString(),
+    }
     setState((prev) => ({
       ...prev,
       customTasks: {
         ...prev.customTasks,
-        [deleteTask.id]: {
-          ...prev.customTasks[deleteTask.id],
-          active: false,
-          deletedAt: new Date().toISOString(),
-        },
+        [deleteTask.id]: updated,
       },
     }))
+    syncCustomTask(updated)
     setDeleteTask(null)
   }
 
@@ -231,7 +249,7 @@ export function TodayScreen({
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       {/* Header */}
-      <header className="bg-primary px-4 pb-5 pt-6 text-primary-foreground">
+      <header className="bg-primary px-4 pb-5 pt-safe-top pt-6 text-primary-foreground">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
             {onBack ? (
@@ -267,12 +285,12 @@ export function TodayScreen({
         <p className="mt-4 text-sm text-primary-foreground/70">
           {somaliDate(date)}
         </p>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-primary-foreground/15 px-3 py-1 text-xs font-semibold">
             Maalinta {dayNum} / {cfg.duration}
           </span>
           <span className="rounded-full bg-gold px-3 py-1 text-xs font-semibold text-gold-foreground">
-            Phase {phase}
+            {PHASE_LABELS[phase] ?? `Phase ${phase}`}
           </span>
           {readOnly && (
             <span className="rounded-full bg-primary-foreground/15 px-3 py-1 text-xs font-semibold">
@@ -282,11 +300,10 @@ export function TodayScreen({
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-md flex-1 space-y-5 px-4 py-5">
+      <main className="mx-auto w-full max-w-md flex-1 space-y-5 px-4 py-5 pb-28">
         {future ? (
           <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-            Maalintan weli ma timaado. Kuma calaamadi kartid hawlaha
-            mustaqbalka.
+            Maalintan weli ma timaado. Kuma calaamadi kartid hawlaha mustaqbalka.
           </div>
         ) : (
           <>
@@ -371,9 +388,7 @@ export function TodayScreen({
                     checked={isCustomDone(state, key, ct.id)}
                     onToggle={() => toggleCustom(ct.id)}
                     disabled={readOnly}
-                    onLongPress={
-                      readOnly ? undefined : () => setActionTask(ct)
-                    }
+                    onLongPress={readOnly ? undefined : () => setActionTask(ct)}
                     trailing={
                       !readOnly ? (
                         <button

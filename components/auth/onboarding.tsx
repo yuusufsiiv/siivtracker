@@ -1,11 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowRight, ArrowLeft } from "lucide-react"
+import { ArrowRight, ArrowLeft, Loader2 } from "lucide-react"
 import { Logo } from "@/components/logo"
 import { PinPad } from "@/components/pin-pad"
-import { useStore, hashPin, type UserData } from "@/lib/store"
+import { useStore, hashPin, pinToPassword, type UserData } from "@/lib/store"
 import { todayKey } from "@/lib/dates"
+import { supabase } from "@/lib/supabase"
 
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const { setState } = useStore()
@@ -15,13 +16,67 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [pin, setPin] = useState("")
   const [confirm, setConfirm] = useState("")
   const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
 
-  function register() {
+  async function register() {
+    setLoading(true)
+    setError("")
+
+    const password = pinToPassword(pin)
+
+    // Sign up on Supabase Auth — email confirmation is disabled (auto-confirm)
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: { name: name.trim() },
+        // Email redirect is not needed since confirmation is disabled
+      },
+    })
+
+    if (signUpError) {
+      // If user already exists, try signing in instead
+      if (signUpError.message.includes("already registered") || signUpError.message.includes("already been registered")) {
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        })
+        if (signInError) {
+          setError("Email-kani horey buu u diiwaan gashan yahay. Geli PIN-ka saxda ah.")
+          setLoading(false)
+          return
+        }
+        if (signInData?.user) {
+          await saveLocalUser(signInData.user.id)
+          setLoading(false)
+          onDone()
+          return
+        }
+      }
+      setError(signUpError.message)
+      setLoading(false)
+      return
+    }
+
+    const userId = data?.user?.id
+    if (!userId) {
+      setError("Diiwaangelinta way ku guuldareysatay. Isku day mar kale.")
+      setLoading(false)
+      return
+    }
+
+    await saveLocalUser(userId)
+    setLoading(false)
+    onDone()
+  }
+
+  async function saveLocalUser(userId: string) {
+    const startDate = todayKey()
     const user: UserData = {
       name: name.trim(),
       email: email.trim(),
       pin: hashPin(pin),
-      startDate: todayKey(),
+      startDate,
       createdAt: new Date().toISOString(),
       city: "",
       lat: null,
@@ -36,8 +91,25 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         isha: true,
       },
     }
+
+    // Save profile to Supabase
+    await supabase.from("profiles").upsert({
+      user_id: userId,
+      name: user.name,
+      email: user.email,
+      pin: user.pin,
+      start_date: user.startDate,
+      city: user.city,
+      lat: user.lat,
+      lng: user.lng,
+      calc_method: user.calcMethod,
+      notify_minutes_before: user.notifyMinutesBefore,
+      notifications: user.notifications,
+      config: {},
+      updated_at: new Date().toISOString(),
+    })
+
     setState((prev) => ({ ...prev, user }))
-    onDone()
   }
 
   return (
@@ -57,7 +129,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           <button
             type="button"
             onClick={() => setStep(1)}
-            className="mt-10 flex w-full max-w-xs items-center justify-center gap-2 rounded-full bg-gold px-6 py-4 text-base font-semibold text-gold-foreground active:scale-95"
+            className="mt-10 flex w-full max-w-xs items-center justify-center gap-2 rounded-full bg-gold px-6 py-4 text-base font-semibold text-gold-foreground active:scale-95 transition-transform"
           >
             Bilow
             <ArrowRight className="h-5 w-5" />
@@ -105,7 +177,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             type="button"
             disabled={name.trim().length < 2 || !email.includes("@")}
             onClick={() => setStep(2)}
-            className="mt-6 flex items-center justify-center gap-2 rounded-full bg-gold px-6 py-4 text-base font-semibold text-gold-foreground disabled:opacity-40 active:scale-95"
+            className="mt-6 flex items-center justify-center gap-2 rounded-full bg-gold px-6 py-4 text-base font-semibold text-gold-foreground disabled:opacity-40 active:scale-95 transition-transform"
           >
             Sii wad
             <ArrowRight className="h-5 w-5" />
@@ -167,7 +239,16 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 }
               }}
             />
-            {error && (
+            {loading && (
+              <div className="mt-6 flex items-center gap-2 text-sm text-primary-foreground/70">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Akoonka la samaynayaa...
+              </div>
+            )}
+            {error && error !== "mismatch" && (
+              <p className="mt-6 text-sm font-medium text-gold">{error}</p>
+            )}
+            {error === "mismatch" && (
               <p className="mt-6 text-sm font-medium text-gold">
                 PIN-yadu isku mid maaha, mar kale isku day.
               </p>

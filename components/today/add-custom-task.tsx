@@ -19,6 +19,7 @@ export function AddCustomTask({
     name: string
     frequency: Frequency
     scheduledDays: number[]
+    schedule?: Record<string, unknown>
   }) => void
   existing?: CustomTask | null
 }) {
@@ -62,6 +63,7 @@ export function AddCustomTask({
       name: name.trim(),
       frequency,
       scheduledDays: frequency === "daily" ? [] : days,
+      schedule: undefined,
     })
     close()
   }
