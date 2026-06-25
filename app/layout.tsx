@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   description:
     'Siiv Track: a 90-day Islamic transformation tracker for daily prayers, habits, and growth.',
   generator: 'v0.app',
-  manifest: '/manifest.webmanifest',
+  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     title: 'Siiv Track',

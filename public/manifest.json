@@ -1,0 +1,23 @@
+{
+  "name": "Siiv Tracker App",
+  "short_name": "SiivTracker",
+  "description": "Ku xisaabi waxqabadkaaga iyo horumarkaaga maalin walba.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1b2a",
+  "theme_color": "#0d1b2a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
