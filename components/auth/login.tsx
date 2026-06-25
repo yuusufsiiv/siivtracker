@@ -78,7 +78,7 @@ export function Login({
         <Logo size={64} />
       </div>
       <h1 className="mt-6 text-2xl font-bold">
-        Ahlan, {state.user?.name?.split(" ")[0] || ""}
+        Soo dhawow, {state.user?.name?.split(" ")[0] || ""}
       </h1>
       <p className="mb-10 mt-1 text-sm text-primary-foreground/60">
         Geli PIN-kaaga si aad u gasho
