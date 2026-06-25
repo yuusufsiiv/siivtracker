@@ -261,6 +261,34 @@ async function pushWeeklyReviewToRemote(
   })
 }
 
+async function syncAllLocalData(userId: string) {
+  if (typeof window !== "undefined" && !window.navigator.onLine) return
+  const currentState = stateRef.current
+  try {
+    await pushProfileToRemote(userId, currentState)
+    await Promise.all(
+      Object.entries(currentState.days).map(([key, day]) => pushDayToRemote(userId, key, day))
+    )
+    await Promise.all(
+      Object.values(currentState.customTasks).map((task) => pushCustomTaskToRemote(userId, task))
+    )
+    await Promise.all(
+      Object.entries(currentState.customTaskLogs).flatMap(([dateKey, tasks]) =>
+        Object.entries(tasks).map(([taskId, completed]) =>
+          pushCustomTaskLogToRemote(userId, dateKey, taskId, completed)
+        )
+      )
+    )
+    await Promise.all(
+      Object.entries(currentState.weeklyReviews).map(([dateKey, review]) =>
+        pushWeeklyReviewToRemote(userId, dateKey, review)
+      )
+    )
+  } catch (error) {
+    console.warn("Could not sync local data when online:", error)
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Store Context
 // ─────────────────────────────────────────────────────────────
@@ -269,6 +297,7 @@ interface StoreContextValue {
   state: AppState
   ready: boolean
   supabaseUser: User | null
+  isOnline: boolean
   setState: (updater: (prev: AppState) => AppState) => void
   syncProfile: () => Promise<void>
   syncDay: (key: string) => Promise<void>
@@ -284,10 +313,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setRawState] = useState<AppState>(emptyState)
   const [ready, setReady] = useState(false)
   const [supabaseUser, setSupabaseUser] = useState<User | null>(null)
+  const [isOnline, setIsOnline] = useState(true)
   const loaded = useRef(false)
   const supabaseUserRef = useRef<User | null>(null)
+  const stateRef = useRef<AppState>(emptyState())
 
   useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsOnline(window.navigator.onLine)
+    }
+
+    async function updateOnline() {
+      const online = typeof window !== "undefined" ? window.navigator.onLine : true
+      setIsOnline(online)
+      if (online && supabaseUserRef.current) {
+        await syncAllLocalData(supabaseUserRef.current.id)
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", updateOnline)
+      window.addEventListener("offline", updateOnline)
+    }
+
     // Load local state first for immediate UI
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
@@ -310,12 +362,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabaseUserRef.current = user
 
       if (user) {
-        // Fetch remote state and merge
+        // Fetch remote state and merge with local changes preserved.
         const remote = await fetchRemoteState(user.id)
         if (remote) {
           setRawState((prev) => ({
             ...prev,
             ...remote,
+            user: { ...remote.user, ...prev.user },
+            days: { ...remote.days, ...prev.days },
+            customTasks: { ...remote.customTasks, ...prev.customTasks },
+            customTaskLogs: { ...remote.customTaskLogs, ...prev.customTaskLogs },
+            weeklyReviews: { ...remote.weeklyReviews, ...prev.weeklyReviews },
             config: { ...defaultConfig(), ...(remote.config ?? prev.config) },
           }))
         }
@@ -345,7 +402,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", updateOnline)
+        window.removeEventListener("offline", updateOnline)
+      }
+      subscription.unsubscribe()
+    }
   }, [])
 
   // Persist to localStorage on every change
@@ -383,13 +446,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   async function syncProfile() {
     const user = supabaseUserRef.current
-    if (!user) return
+    if (!user || !isOnline) return
     await pushProfileToRemote(user.id, state)
   }
 
   async function syncDay(key: string) {
     const user = supabaseUserRef.current
-    if (!user) return
+    if (!user || !isOnline) return
     const day = state.days[key]
     if (!day) return
     await pushDayToRemote(user.id, key, day)
@@ -397,19 +460,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   async function syncCustomTask(task: CustomTask) {
     const user = supabaseUserRef.current
-    if (!user) return
+    if (!user || !isOnline) return
     await pushCustomTaskToRemote(user.id, task)
   }
 
   async function syncCustomTaskLog(dateKey: string, taskId: string, completed: boolean) {
     const user = supabaseUserRef.current
-    if (!user) return
+    if (!user || !isOnline) return
     await pushCustomTaskLogToRemote(user.id, dateKey, taskId, completed)
   }
 
   async function syncWeeklyReview(dateKey: string, review: WeeklyReview) {
     const user = supabaseUserRef.current
-    if (!user) return
+    if (!user || !isOnline) return
     await pushWeeklyReviewToRemote(user.id, dateKey, review)
   }
 
@@ -419,6 +482,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         state,
         ready,
         supabaseUser,
+        isOnline,
         setState,
         syncProfile,
         syncDay,

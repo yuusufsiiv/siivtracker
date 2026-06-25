@@ -3,9 +3,7 @@
 import { useState } from "react"
 import { Logo } from "@/components/logo"
 import { useStore } from "@/lib/store"
-import { Onboarding } from "@/components/auth/onboarding"
-import { Login } from "@/components/auth/login"
-import { ForgotPin } from "@/components/auth/forgot-pin"
+import { AuthPortal } from "@/components/auth/auth-portal"
 import { BottomNav, type Screen } from "@/components/bottom-nav"
 import { TodayScreen } from "@/components/screens/today-screen"
 import { CalendarScreen } from "@/components/screens/calendar-screen"
@@ -14,9 +12,8 @@ import { StatsScreen } from "@/components/screens/stats-screen"
 import { SettingsScreen } from "@/components/screens/settings-screen"
 
 export function AppShell() {
-  const { state, ready, supabaseUser } = useStore()
+  const { state, ready } = useStore()
   const [authed, setAuthed] = useState(false)
-  const [authView, setAuthView] = useState<"login" | "forgot">("login")
   const [screen, setScreen] = useState<Screen>("today")
   const [detailKey, setDetailKey] = useState<string | null>(null)
 
@@ -31,22 +28,8 @@ export function AppShell() {
     )
   }
 
-  // No user profile yet — run onboarding
-  if (!state.user) {
-    return <Onboarding onDone={() => setAuthed(true)} />
-  }
-
-  // User exists but not yet authenticated this session
-  if (!authed) {
-    if (authView === "forgot") {
-      return <ForgotPin onBack={() => setAuthView("login")} />
-    }
-    return (
-      <Login
-        onSuccess={() => setAuthed(true)}
-        onForgot={() => setAuthView("forgot")}
-      />
-    )
+  if (!state.user || !authed) {
+    return <AuthPortal onAuthenticated={() => setAuthed(true)} />
   }
 
   // Day detail view (from calendar)
@@ -60,7 +43,7 @@ export function AppShell() {
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col bg-background">
       <div className="flex-1 overflow-y-auto">
-        {screen === "today" && <TodayScreen />}
+        {screen === "today" && <TodayScreen onOpenSettings={() => setScreen("settings")} />}
         {screen === "grid" && (
           <CalendarScreen onOpenDay={(k) => setDetailKey(k)} />
         )}

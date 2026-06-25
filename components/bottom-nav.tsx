@@ -1,6 +1,6 @@
 "use client"
 
-import { BarChart3, CalendarCheck, Grid3x3, LineChart, Settings } from "lucide-react"
+import { BarChart3, CalendarCheck, Grid3x3, LineChart } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export type Screen = "today" | "grid" | "weekly" | "stats" | "settings"
@@ -10,7 +10,6 @@ const TABS: { id: Screen; label: string; Icon: typeof CalendarCheck }[] = [
   { id: "grid", label: "Jadwal", Icon: Grid3x3 },
   { id: "weekly", label: "Toddobaad", Icon: LineChart },
   { id: "stats", label: "Xogta", Icon: BarChart3 },
-  { id: "settings", label: "Settings", Icon: Settings },
 ]
 
 export function BottomNav({

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ArrowLeft, Info, Pencil, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, Pencil, Plus, Settings, Trash2 } from "lucide-react"
 import { Logo } from "@/components/logo"
 import { TaskItem } from "@/components/today/task-item"
 import { ScoreBar } from "@/components/today/score-bar"
@@ -41,9 +41,11 @@ const PHASE_LABELS: Record<number, string> = {
 export function TodayScreen({
   dateKey,
   onBack,
+  onOpenSettings,
 }: {
   dateKey?: string
   onBack?: () => void
+  onOpenSettings?: () => void
 }) {
   const { state, setState, syncDay, syncCustomTask, syncCustomTaskLog } = useStore()
   const now = useNow(20000)
@@ -249,43 +251,43 @@ export function TodayScreen({
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       {/* Header */}
-      <header className="bg-primary px-4 pb-5 pt-safe-top pt-6 text-primary-foreground">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            {onBack ? (
-              <button
-                type="button"
-                onClick={onBack}
-                className="-ml-1 flex h-9 w-9 items-center justify-center rounded-full bg-primary-foreground/10 active:scale-95"
-                aria-label="Dib u noqo"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-            ) : (
-              <Logo size={32} />
-            )}
-            <span className="text-base font-bold">{cfg.appTitle}</span>
-          </div>
-          <div className="text-right">
-            <span className="block text-lg font-bold tabular-nums">
-              {formatClock(now)}
-            </span>
-            {cfg.showRules && (
-              <button
-                type="button"
-                onClick={() => setShowRules(true)}
-                className="mt-0.5 inline-flex items-center gap-1 text-xs text-primary-foreground/70"
-              >
-                <Info className="h-3.5 w-3.5" /> Xeerar
-              </button>
-            )}
-          </div>
+      <header className="relative bg-primary px-4 pb-5 pt-safe-top pt-6 text-primary-foreground">
+        <div className="absolute left-4 top-4">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-foreground/10 active:scale-95"
+              aria-label="Dib u noqo"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+          ) : onOpenSettings ? (
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-foreground/10 active:scale-95"
+              aria-label="Settings"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+          ) : null}
         </div>
 
-        <p className="mt-4 text-sm text-primary-foreground/70">
-          {somaliDate(date)}
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="absolute right-4 top-4 text-right">
+          <span className="text-lg font-bold tabular-nums">{formatClock(now)}</span>
+        </div>
+
+        <div className="mt-8 text-center">
+          <h1 className="text-2xl font-semibold text-primary-foreground">
+            90 Day Transformation
+          </h1>
+          <p className="mt-2 text-sm text-primary-foreground/70">
+            {somaliDate(date)}
+          </p>
+        </div>
+
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           <span className="rounded-full bg-primary-foreground/15 px-3 py-1 text-xs font-semibold">
             Maalinta {dayNum} / {cfg.duration}
           </span>
