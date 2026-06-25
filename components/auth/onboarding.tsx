@@ -1,14 +1,17 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { ArrowRight, ArrowLeft, Loader2 } from "lucide-react"
 import { Logo } from "@/components/logo"
 import { PinPad } from "@/components/pin-pad"
 import { useStore, hashPin, pinToPassword, type UserData } from "@/lib/store"
 import { todayKey } from "@/lib/dates"
+import { getSafeErrorMessage } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 
 export function Onboarding({ onDone }: { onDone: () => void }) {
+  const router = useRouter()
   const { setState } = useStore()
   const [step, setStep] = useState(0)
   const [name, setName] = useState("")
@@ -22,59 +25,135 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     setLoading(true)
     setError("")
 
-    const password = pinToPassword(pin)
+    const normalizedEmail = email.trim().toLowerCase()
+    const password = pinToPassword(pin, normalizedEmail)
 
-    // Sign up on Supabase Auth — email confirmation is disabled (auto-confirm)
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        data: { name: name.trim() },
-        // Email redirect is not needed since confirmation is disabled
-      },
+    console.log("Supabase signup attempt", {
+      email: normalizedEmail,
+      online: typeof window !== "undefined" ? window.navigator.onLine : null,
+      origin: typeof window !== "undefined" ? window.location.href : null,
     })
 
+    // Sign up on Supabase Auth — email confirmation is disabled (auto-confirm)
+    let data: any = null
+    let signUpError: any = null
+    try {
+      const result = await supabase.auth.signUp(
+        {
+          email: normalizedEmail,
+          password,
+        },
+        {
+          data: { name: name.trim() },
+        }
+      )
+      data = result.data
+      signUpError = result.error
+    } catch (error) {
+      console.error("Supabase Auth Error: signUp threw", error)
+      setError(
+        "Ma la gaari karin adeega Supabase. Fadlan hubi shabakaddaada iyo xogta URL-ka Supabase, ka dibna isku day mar kale."
+      )
+      setLoading(false)
+      return
+    }
+
+    const signUpErrorMessage = getSafeErrorMessage(signUpError)
     if (signUpError) {
-      // If user already exists, try signing in instead
-      if (signUpError.message.includes("already registered") || signUpError.message.includes("already been registered")) {
+      console.error("Supabase Auth Error: signUp", signUpError)
+      const signUpDebug =
+        signUpErrorMessage ||
+        JSON.stringify(signUpError, Object.getOwnPropertyNames(signUpError), 2)
+
+      if (signUpError.message === "User already registered") {
+        console.log("Qofkan horay ayaa loo diiwaangeliyay, u gudbi Login.")
+        alert("Email-kan horay ayaa loo diiwaangeliyay. Fadlan Login gal.")
+        router.push('/login')
+        setLoading(false)
+        return
+      }
+
+      if (
+        signUpErrorMessage.includes("already registered") ||
+        signUpErrorMessage.includes("already been registered") ||
+        signUpErrorMessage.includes("duplicate key") ||
+        signUpErrorMessage.includes("already exists")
+      ) {
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
+          email: normalizedEmail,
           password,
         })
         if (signInError) {
-          setError("Email-kani horey buu u diiwaan gashan yahay. Geli PIN-ka saxda ah.")
+          console.error("Supabase Auth Error: signInWithPassword after existing user", signInError)
+          setError(
+            getSafeErrorMessage(signInError) ||
+              "Email-kani horey buu u diiwaan gashan yahay. Haddii PIN-ka aad xasuusan weydo, isticmaal 'PIN-ka ma illowday'."
+          )
           setLoading(false)
           return
         }
-        if (signInData?.user) {
-          await saveLocalUser(signInData.user.id)
-          setLoading(false)
-          onDone()
-          return
+        if (signInData?.user || signInData?.session?.user) {
+          const profileUserId = signInData.user?.id || signInData.session?.user?.id
+          if (profileUserId) {
+            await saveLocalUser(profileUserId)
+            setLoading(false)
+            onDone()
+            return
+          }
         }
       }
-      setError(signUpError.message)
+      setError(
+        signUpErrorMessage ||
+          "Diiwaangelinta way ku guuldareysatay. Fadlan hubi email-ka iyo PIN-ka oo mar kale isku day."
+      )
       setLoading(false)
+      console.log("Supabase signup debug:", signUpDebug)
       return
     }
 
-    const userId = data?.user?.id
+    const signupUser = data?.user ?? data?.session?.user
+    const userId = signupUser?.id
+
     if (!userId) {
-      setError("Diiwaangelinta way ku guuldareysatay. Isku day mar kale.")
+      console.error("Supabase signup returned without a user ID", data)
+      setError(
+        "Aqoontii waa la abuuray, laakiin weli lama helin aqoonsi user. Fadlan email-kaaga xaqiiji ama mar kale dib isku day."
+      )
       setLoading(false)
       return
     }
 
-    await saveLocalUser(userId)
+    const { data: sessionData } = await supabase.auth.getSession()
+    const activeSessionUserId = sessionData?.session?.user?.id
+    const hasSession = Boolean(activeSessionUserId && activeSessionUserId === userId)
+
+    const profileRes = await saveLocalUser(userId, hasSession)
+    if (profileRes.error && hasSession) {
+      console.warn("Profile save error:", profileRes.error)
+      setError(
+        getSafeErrorMessage(profileRes.error) ||
+          "Ma jiro profile la helay. Fadlan isku day mar kale."
+      )
+      setLoading(false)
+      return
+    }
+
+    if (!hasSession) {
+      console.warn(
+        "Supabase signUp succeeded but no active session was confirmed; user profile saved locally only."
+      )
+    }
+
     setLoading(false)
     onDone()
   }
 
-  async function saveLocalUser(userId: string) {
+  async function saveLocalUser(userId: string, syncRemote = true) {
     const startDate = todayKey()
+    const normalizedEmail = email.trim().toLowerCase()
     const user: UserData = {
       name: name.trim(),
-      email: email.trim(),
+      email: normalizedEmail,
       pin: hashPin(pin),
       startDate,
       createdAt: new Date().toISOString(),
@@ -92,8 +171,13 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       },
     }
 
+    if (!syncRemote) {
+      setState((prev) => ({ ...prev, user }))
+      return { data: user, error: null }
+    }
+
     // Save profile to Supabase
-    await supabase.from("profiles").upsert({
+    return supabase.from("profiles").upsert({
       user_id: userId,
       name: user.name,
       email: user.email,
@@ -108,8 +192,10 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       config: {},
       updated_at: new Date().toISOString(),
     })
-
-    setState((prev) => ({ ...prev, user }))
+      .then((res) => {
+        if (!res.error) setState((prev) => ({ ...prev, user }))
+        return res
+      })
   }
 
   return (

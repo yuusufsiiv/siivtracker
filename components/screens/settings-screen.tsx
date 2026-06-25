@@ -935,9 +935,7 @@ function SecurityPanel({
     } else {
       if (next === firstNew) {
         // Update Supabase Auth password
-        const newPassword = pinToPassword(next)
-        await supabase.auth.updateUser({ password: newPassword })
-
+          const newPassword = pinToPassword(next, state.user?.email)
         setState((prev) => ({
           ...prev,
           user: { ...prev.user!, pin: hashPin(next) },

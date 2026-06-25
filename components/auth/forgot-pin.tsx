@@ -4,6 +4,7 @@ import { useState } from "react"
 import { ArrowLeft, Check, Loader2 } from "lucide-react"
 import { PinPad } from "@/components/pin-pad"
 import { useStore, hashPin, pinToPassword, type PinHistoryEntry } from "@/lib/store"
+import { getSafeErrorMessage } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 
 export function ForgotPin({ onBack }: { onBack: () => void }) {
@@ -11,12 +12,14 @@ export function ForgotPin({ onBack }: { onBack: () => void }) {
   const [step, setStep] = useState(0)
   const [email, setEmail] = useState("")
   const [emailError, setEmailError] = useState("")
+  const [generalError, setGeneralError] = useState("")
   const [pin, setPin] = useState("")
   const [confirm, setConfirm] = useState("")
   const [mismatch, setMismatch] = useState(false)
   const [loading, setLoading] = useState(false)
 
   function checkEmail() {
+    setGeneralError("")
     if (email.trim().toLowerCase() === state.user?.email.trim().toLowerCase()) {
       setEmailError("")
       setStep(1)
@@ -34,12 +37,17 @@ export function ForgotPin({ onBack }: { onBack: () => void }) {
     }
 
     // Update Supabase Auth password
-    const newPassword = pinToPassword(pin)
+    const newPassword = pinToPassword(pin, state.user?.email)
     const { error: updateError } = await supabase.auth.updateUser({
       password: newPassword,
     })
     if (updateError) {
-      console.warn("Could not update Supabase password:", updateError.message)
+      const message = getSafeErrorMessage(updateError) ||
+        "PIN-ka lama cusbooneysiin karo. Fadlan isku day mar kale."
+      console.warn("Could not update Supabase password:", updateError)
+      setGeneralError(message)
+      setLoading(false)
+      return
     }
 
     setState((prev) => ({
@@ -137,6 +145,9 @@ export function ForgotPin({ onBack }: { onBack: () => void }) {
               <Loader2 className="h-4 w-4 animate-spin" />
               La keydiyaa...
             </div>
+          )}
+          {generalError && (
+            <p className="mt-6 text-sm font-medium text-gold">{generalError}</p>
           )}
           {mismatch && (
             <p className="mt-6 text-sm font-medium text-gold">

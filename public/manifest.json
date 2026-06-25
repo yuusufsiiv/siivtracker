@@ -3,6 +3,7 @@
   "short_name": "SiivTracker",
   "description": "Ku xisaabi waxqabadkaaga iyo horumarkaaga maalin walba.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0d1b2a",
   "theme_color": "#0d1b2a",

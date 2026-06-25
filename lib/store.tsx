@@ -16,8 +16,9 @@ import {
 import { toDateKey } from "@/lib/dates"
 import { supabase } from "@/lib/supabase"
 import type { User } from "@supabase/supabase-js"
+import type { Language } from "@/lib/translations"
 
-const STORAGE_KEY = "siiv-track-v2"
+export const STORAGE_KEY = "siiv-track-v2"
 
 export interface UserData {
   name: string
@@ -74,6 +75,7 @@ export interface AppState {
   weeklyReviews: Record<string, WeeklyReview>
   pinHistory: PinHistoryEntry[]
   config: AppConfig
+  language: Language
 }
 
 function emptyState(): AppState {
@@ -85,6 +87,7 @@ function emptyState(): AppState {
     weeklyReviews: {},
     pinHistory: [],
     config: defaultConfig(),
+    language: "so",
   }
 }
 
@@ -97,9 +100,11 @@ export function hashPin(pin: string): string {
   return (h >>> 0).toString(16)
 }
 
-/** Build a Supabase-compatible password from a PIN. */
-export function pinToPassword(pin: string): string {
-  return `siiv_${pin}_tracker_2024`
+/** Build a Supabase-compatible password from a PIN and email. */
+export function pinToPassword(pin: string, email?: string): string {
+  const normalizedEmail = (email ?? "anon").trim().toLowerCase()
+  const safeEmail = normalizedEmail.replace(/[^a-z0-9@.-]/g, "")
+  return `siiv_secure_${safeEmail}_${pin}_tracker_2026`
 }
 
 export function emptyDay(): DayData {
@@ -299,6 +304,7 @@ interface StoreContextValue {
   supabaseUser: User | null
   isOnline: boolean
   setState: (updater: (prev: AppState) => AppState) => void
+  setLanguage: (language: Language) => void
   syncProfile: () => Promise<void>
   syncDay: (key: string) => Promise<void>
   syncCustomTask: (task: CustomTask) => Promise<void>
@@ -435,6 +441,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRawState((prev) => updater(prev))
   }
 
+  function setLanguage(language: Language) {
+    setRawState((prev) => ({ ...prev, language }))
+  }
+
   function reset() {
     const fresh = emptyState()
     setRawState(fresh)
@@ -484,6 +494,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         supabaseUser,
         isOnline,
         setState,
+        setLanguage,
         syncProfile,
         syncDay,
         syncCustomTask,

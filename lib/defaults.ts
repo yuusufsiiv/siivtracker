@@ -91,7 +91,7 @@ export const DEFAULT_PRAYERS: PrayerDef[] = [
 
 export const DEFAULT_SIIGA: SiigaConfig = {
   show: true,
-  label: "Maalin aan siigo lahayn",
+  label: "Caado xun oo aad rabtid inad joojiso",
   countInScore: false,
   showSlipModal: true,
   whyLabel: "Maxaa kuu keenay?",

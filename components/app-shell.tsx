@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Logo } from "@/components/logo"
 import { useStore } from "@/lib/store"
+import { requestNotificationPermission, scheduleDailyReminder } from "@/lib/notifications"
 import { AuthPortal } from "@/components/auth/auth-portal"
 import { BottomNav, type Screen } from "@/components/bottom-nav"
 import { TodayScreen } from "@/components/screens/today-screen"
@@ -16,6 +17,21 @@ export function AppShell() {
   const [authed, setAuthed] = useState(false)
   const [screen, setScreen] = useState<Screen>("today")
   const [detailKey, setDetailKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelReminder: (() => void) | null = null
+    async function setupNotifications() {
+      if (!authed || !state.user?.name) return
+      const permission = await requestNotificationPermission()
+      if (permission === "granted") {
+        cancelReminder = await scheduleDailyReminder(state.user.name)
+      }
+    }
+    setupNotifications()
+    return () => {
+      if (cancelReminder) cancelReminder()
+    }
+  }, [authed, state.user?.name])
 
   // Loading splash
   if (!ready) {
